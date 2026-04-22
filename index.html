@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ku" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>تۆڵەی عیمران - باشترین وەشان</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@900&display=swap');
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #010105; overflow: hidden; font-family: 'Cairo', sans-serif; touch-action: none; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+        .top-bar { padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; background: rgba(0, 0, 0, 0.4); border-bottom: 1px solid rgba(0, 255, 255, 0.2); }
+        .game-info { background: rgba(0, 255, 255, 0.1); padding: 5px 15px; border-radius: 10px; border: 1px solid #00ffff; color: #00ffff; font-size: 16px; }
+        #lives-display { font-size: 24px; color: white; display: flex; align-items: center; gap: 10px; background: rgba(255, 0, 68, 0.1); padding: 5px 15px; border-radius: 10px; border: 1px solid #ff0044; }
+        #pause-btn { pointer-events: auto; background: #222; border: 1.5px solid #fff; color: white; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+        #overlay { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.95); text-align: center; pointer-events: auto; flex-direction: column; justify-content: center; align-items: center; }
+        .shop-title { color: #00ff88; margin-top: 20px; font-size: 18px; text-decoration: underline; }
+        .shop-container { display: flex; gap: 10px; margin: 15px 0; flex-wrap: wrap; justify-content: center; padding: 10px; }
+        .shop-item { background: #1a1a1a; border: 1.5px solid #00ff88; padding: 10px; border-radius: 12px; width: 90px; color: white; cursor: pointer; }
+        .shop-item small { display: block; font-size: 11px; color: #00ff88; margin-top: 5px; }
+        .btn-group { display: flex; flex-direction: column; gap: 12px; width: 220px; margin-top: 20px; }
+        button.action-btn { background: #00ff88; color: black; border: none; padding: 14px; font-size: 18px; border-radius: 12px; cursor: pointer; font-family: 'Cairo', sans-serif; font-weight: bold; }
+        #shield-indicator { display: none; position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); color: #00ff88; background: rgba(0,255,136,0.2); padding: 5px 15px; border-radius: 20px; border: 1px solid #00ff88; }
+        #skin-container { position: absolute; bottom: 30px; left: 20px; color: white; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 8px; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div class="top-bar">
+            <div class="game-info">خاڵ: <span id="score">0</span> | ئاست: <span id="level">1</span></div>
+            <button id="pause-btn" onclick="togglePause()">⏸️</button>
+            <div id="lives-display"><span id="lives-count">3x</span> <span id="lives-emoji">❤️‍🩹</span></div>
+        </div>
+        <div id="shield-indicator">🛡️ قەڵغان چالاکە!</div>
+        <div id="skin-container">سکین: <span id="skin-name">ئاسایی</span></div>
+        <div id="overlay">
+            <h1 id="over-title">وەستاوە</h1>
+            <p id="over-msg" style="color: white; font-size: 18px; margin-top: 10px;"></p>
+            <div class="shop-title">🛒 بازاڕی عیمران کوژ</div>
+            <div class="shop-container" id="shop-box">
+                <div class="shop-item" onclick="buyItem('life')">❤️ دڵ<small>200 خاڵ</small></div>
+                <div class="shop-item" onclick="buyItem('speed')">⚡ خێرایی<small>500 خاڵ</small></div>
+                <div class="shop-item" onclick="buyItem('shield')">🛡️ قەڵغان<small>800 خاڵ</small></div>
+            </div>
+            <div class="btn-group">
+                <button id="main-btn" class="action-btn" onclick="handleMainBtn()">بەردەوامبە ▶️</button>
+                <button class="action-btn" style="background:#555;color:white;" onclick="location.reload()">🏠 سەرەتا</button>
+            </div>
+        </div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score'), levelEl = document.getElementById('level'), livesCountEl = document.getElementById('lives-count'), livesEmojiEl = document.getElementById('lives-emoji'), overlay = document.getElementById('overlay'), overTitle = document.getElementById('over-title'), overMsg = document.getElementById('over-msg'), mainBtn = document.getElementById('main-btn'), shieldInd = document.getElementById('shield-indicator'), skinNameEl = document.getElementById('skin-name');
+
+        let score = 0, level = 1, lives = 3, gameActive = true, isPaused = false, frame = 0, bulletSpeed = 20, hasShield = false;
+        let spawnRate = 50;
+        const player = { x: 0, y: 0, color: '#00ffff' };
+        
+        const enemyData = [
+            { name: "قونی عیمرانی", emoji: "🕳️" }, { name: "عیمرانە پیس", emoji: "🧌" },
+            { name: "عیمران بەزگپری", emoji: "🤰🏼" }, { name: "عیمرانە خۆش", emoji: "🤤" },
+            { name: "عیمران ژنم", emoji: "👰🏼‍♀️" }
+        ];
+
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; player.x = canvas.width / 2; player.y = canvas.height * 0.75; }
+        window.addEventListener('resize', resize); resize();
+
+        let bullets = [], enemies = [], heartDrops = [];
+
+        function handleInput(e) { if(!gameActive || isPaused) return; const touchX = (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX; player.x = touchX; }
+        window.addEventListener('touchstart', handleInput); window.addEventListener('touchmove', handleInput); window.addEventListener('mousedown', handleInput);
+
+        function updateLivesUI() {
+            livesCountEl.innerText = lives + "x";
+            if (lives <= 0) livesEmojiEl.innerText = "💔";
+            else if (lives <= 3) livesEmojiEl.innerText = "❤️‍🩹";
+            else if (lives <= 5) livesEmojiEl.innerText = "❣️";
+            else if (lives <= 7) livesEmojiEl.innerText = "💖";
+            else if (lives <= 9) livesEmojiEl.innerText = "💝";
+            else livesEmojiEl.innerText = "🫀";
+        }
+
+        function checkLevel() {
+            level = Math.floor(score / 200) + 1;
+            levelEl.innerText = level;
+
+            if (level < 3) { 
+                player.color = '#00ffff'; 
+                skinNameEl.innerText = "ئاسایی"; 
+                spawnRate = 50; 
+            }
+            else if (level < 6) { 
+                player.color = '#e0e0e0'; 
+                skinNameEl.innerText = "سلڤەر"; 
+                spawnRate = 40; 
+            }
+            else if (level < 9) { 
+                player.color = '#ffd700'; 
+                skinNameEl.innerText = "گۆڵد (٢ فیشەک)"; 
+                spawnRate = 30; 
+            }
+            else { 
+                player.color = '#bf00ff'; 
+                skinNameEl.innerText = "مۆر (٣ فیشەک)"; 
+                spawnRate = 22; 
+            }
+        }
+
+        function togglePause() {
+            if (!gameActive) return;
+            isPaused = !isPaused;
+            if (isPaused) {
+                overlay.style.display = 'flex';
+                overTitle.innerText = "عیمرانەکان دەگێن ئاگاداربە";
+                overMsg.innerText = "دەست بەیاریبکەو بیان گێ";
+                mainBtn.innerText = "بەردەوامبە ▶️";
+                document.getElementById('shop-box').style.display = 'flex';
+            } else { overlay.style.display = 'none'; animate(); }
+        }
+
+        function buyItem(type) {
+            if(type === 'life' && score >= 200 && lives < 10) { score -= 200; lives++; }
+            else if(type === 'speed' && score >= 500) { score -= 500; bulletSpeed = 38; }
+            else if(type === 'shield' && score >= 800) { 
+                score -= 800; hasShield = true; shieldInd.style.display = 'block';
+                setTimeout(() => { hasShield = false; shieldInd.style.display = 'none'; }, 10000);
+            }
+            scoreEl.innerText = score; checkLevel(); updateLivesUI();
+        }
+
+        function handleMainBtn() { if (lives <= 0) location.reload(); else togglePause(); }
+
+        class Enemy {
+            constructor() { 
+                const data = enemyData[Math.floor(Math.random()*enemyData.length)];
+                this.x = Math.random() * (canvas.width - 60) + 30; this.y = -50; 
+                this.speed = 3.2 + (level * 0.5); 
+                this.name = data.name; this.emoji = data.emoji;
+            }
+            draw() { 
+                ctx.font = '35px Arial'; ctx.textAlign = 'center'; ctx.fillText(this.emoji, this.x, this.y);
+                ctx.fillStyle = '#ff0000'; ctx.font = 'bold 10px Cairo'; ctx.fillText(this.name, this.x, this.y + 25);
+            }
+            update() { this.y += this.speed; }
+        }
+
+        function animate() {
+            if (!gameActive || isPaused) return;
+            ctx.fillStyle = 'rgba(1, 1, 5, 0.4)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = player.color; ctx.shadowBlur = 15; ctx.shadowColor = player.color;
+            ctx.beginPath(); ctx.moveTo(player.x, player.y - 30); ctx.lineTo(player.x - 25, player.y + 25); ctx.lineTo(player.x + 25, player.y + 25); ctx.fill(); ctx.shadowBlur = 0;
+            
+            if(hasShield) { ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(player.x, player.y, 55, 0, Math.PI*2); ctx.stroke(); }
+
+            // تەقەکردنی ئاستەکان
+            if (frame % 10 === 0) {
+                if (level < 6) { 
+                    bullets.push({x: player.x, y: player.y - 30}); 
+                }
+                else if (level < 9) { 
+                    bullets.push({x: player.x - 18, y: player.y - 10}); 
+                    bullets.push({x: player.x + 18, y: player.y - 10}); 
+                }
+                else { 
+                    bullets.push({x: player.x, y: player.y - 30}); 
+                    bullets.push({x: player.x - 28, y: player.y + 10}); 
+                    bullets.push({x: player.x + 28, y: player.y + 10}); 
+                }
+            }
+
+            bullets.forEach((b, i) => {
+                b.y -= bulletSpeed; ctx.fillStyle = player.color; ctx.fillRect(b.x - 2, b.y, 4, 18);
+                if(b.y < 0) bullets.splice(i, 1);
+            });
+
+            heartDrops.forEach((h, i) => {
+                h.y += 3; ctx.font = '25px Arial'; ctx.fillText('❤️', h.x, h.y);
+                if(Math.hypot(h.x - player.x, h.y - player.y) < 45) { heartDrops.splice(i, 1); if(lives < 10) lives++; updateLivesUI(); }
+                if(h.y > canvas.height) heartDrops.splice(i, 1);
+            });
+
+            if (frame % Math.max(15, spawnRate) === 0) enemies.push(new Enemy());
+            enemies.forEach((e, i) => {
+                e.update(); e.draw();
+                if (Math.hypot(player.x - e.x, player.y - e.y) < 42) { 
+                    enemies.splice(i, 1); if(!hasShield) loseLife(); 
+                }
+                bullets.forEach((b, bi) => {
+                    if (Math.abs(b.x - e.x) < 32 && Math.abs(b.y - e.y) < 32) {
+                        if(Math.random() < 0.01) heartDrops.push({x: e.x, y: e.y}); // 1% ئەگەر
+                        enemies.splice(i, 1); bullets.splice(bi, 1);
+                        score += 10; scoreEl.innerText = score; checkLevel();
+                    }
+                });
+                if(e.y > canvas.height + 60) { enemies.splice(i, 1); if(!hasShield) loseLife(); }
+            });
+
+            frame++; requestAnimationFrame(animate);
+        }
+
+        function loseLife() {
+            lives--; updateLivesUI();
+            if (lives <= 0) { 
+                gameActive = false; overlay.style.display = 'flex';
+                overTitle.innerText = "دۆڕایت!"; overMsg.innerText = "عیمران بگێ بۆ وەستای";
+                mainBtn.innerText = "دووبارە دەستپێبکەرەوە";
+                document.getElementById('shop-box').style.display = 'none';
+                document.querySelector('.shop-title').style.display = 'none';
+            }
+        }
+        updateLivesUI();
+        animate();
+    </script>
+</body>
+</html>
